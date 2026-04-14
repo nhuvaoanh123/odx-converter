@@ -479,9 +479,9 @@
     <xs:complexType>
       <xs:sequence>
         <xs:element ref="SHORT-NAME"/>
-        <xs:element ref="LONG-NAME" minOccurs="0"/>
-        <xs:element ref="DESC" minOccurs="0"/>
-        <!-- admin / company / audience / protocol / diag-comms / etc -->
+        <!-- LONG-NAME/DESC/admin/etc. absorbed by the wildcard below.
+             Pure named elements collide with xs:any ##local under XSD 1.0
+             Unique Particle Attribution, so the wildcard is the only tail. -->
         <xs:any namespace="##local" processContents="lax"
                 minOccurs="0" maxOccurs="unbounded"/>
       </xs:sequence>
@@ -494,8 +494,6 @@
     <xs:complexType>
       <xs:sequence>
         <xs:element ref="SHORT-NAME"/>
-        <xs:element ref="LONG-NAME" minOccurs="0"/>
-        <xs:element ref="DESC" minOccurs="0"/>
         <xs:any namespace="##local" processContents="lax"
                 minOccurs="0" maxOccurs="unbounded"/>
       </xs:sequence>
@@ -537,8 +535,6 @@
     <xs:complexType>
       <xs:sequence>
         <xs:element ref="SHORT-NAME"/>
-        <xs:element ref="LONG-NAME" minOccurs="0"/>
-        <xs:element ref="DESC" minOccurs="0"/>
         <xs:any namespace="##local" processContents="lax"
                 minOccurs="0" maxOccurs="unbounded"/>
       </xs:sequence>
@@ -552,16 +548,9 @@
   <xs:element name="SCALE-CONSTRS" type="anyContent"/>
   <xs:element name="SCALE-CONSTR" type="anyContent"/>
 
-  <!-- Compu method subtree (backbone for DOPs) -->
-  <xs:element name="COMPU-METHOD">
-    <xs:complexType>
-      <xs:sequence>
-        <xs:element ref="CATEGORY"/>
-        <xs:any namespace="##local" processContents="lax"
-                minOccurs="0" maxOccurs="unbounded"/>
-      </xs:sequence>
-    </xs:complexType>
-  </xs:element>
+  <!-- Compu method subtree (backbone for DOPs).  CATEGORY is absorbed
+       by the wildcard to avoid Unique Particle Attribution conflict. -->
+  <xs:element name="COMPU-METHOD" type="anyContent"/>
   <xs:element name="COMPU-INTERNAL-TO-PHYS" type="anyContent"/>
   <xs:element name="COMPU-PHYS-TO-INTERNAL" type="anyContent"/>
   <xs:element name="COMPU-SCALES" type="anyContent"/>
@@ -588,8 +577,6 @@
     <xs:complexType>
       <xs:sequence>
         <xs:element ref="SHORT-NAME"/>
-        <xs:element ref="LONG-NAME" minOccurs="0"/>
-        <xs:element ref="DESC" minOccurs="0"/>
         <xs:any namespace="##local" processContents="lax"
                 minOccurs="0" maxOccurs="unbounded"/>
       </xs:sequence>
@@ -626,8 +613,6 @@
     <xs:complexType>
       <xs:sequence>
         <xs:element ref="SHORT-NAME"/>
-        <xs:element ref="LONG-NAME" minOccurs="0"/>
-        <xs:element ref="DESC" minOccurs="0"/>
         <xs:any namespace="##local" processContents="lax"
                 minOccurs="0" maxOccurs="unbounded"/>
       </xs:sequence>
@@ -644,8 +629,6 @@
     <xs:complexType>
       <xs:sequence>
         <xs:element ref="SHORT-NAME"/>
-        <xs:element ref="LONG-NAME" minOccurs="0"/>
-        <xs:element ref="DESC" minOccurs="0"/>
         <xs:any namespace="##local" processContents="lax"
                 minOccurs="0" maxOccurs="unbounded"/>
       </xs:sequence>
@@ -738,8 +721,6 @@
     <xs:complexType>
       <xs:sequence>
         <xs:element ref="SHORT-NAME"/>
-        <xs:element ref="LONG-NAME" minOccurs="0"/>
-        <xs:element ref="DESC" minOccurs="0"/>
         <xs:any namespace="##local" processContents="lax"
                 minOccurs="0" maxOccurs="unbounded"/>
       </xs:sequence>

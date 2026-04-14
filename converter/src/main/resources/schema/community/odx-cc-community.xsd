@@ -68,8 +68,9 @@
     <xs:complexType>
       <xs:sequence>
         <xs:element ref="SHORT-NAME"/>
-        <xs:element ref="LONG-NAME" minOccurs="0"/>
-        <xs:element ref="FILES" minOccurs="0"/>
+        <!-- LONG-NAME/FILES absorbed by the wildcard below (avoids
+             XSD 1.0 Unique Particle Attribution conflict against
+             xs:any ##local). -->
         <xs:any namespace="##local" processContents="lax"
                 minOccurs="0" maxOccurs="unbounded"/>
       </xs:sequence>
@@ -89,8 +90,9 @@
     <xs:complexType>
       <xs:sequence>
         <xs:element ref="SHORT-NAME"/>
-        <xs:element ref="LONG-NAME" minOccurs="0"/>
-        <xs:element ref="ABLOCKS" minOccurs="0"/>
+        <!-- LONG-NAME/ABLOCKS absorbed by the wildcard below (avoids
+             XSD 1.0 Unique Particle Attribution conflict against
+             xs:any ##local). -->
         <xs:any namespace="##local" processContents="lax"
                 minOccurs="0" maxOccurs="unbounded"/>
       </xs:sequence>
