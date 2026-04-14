@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  SPDX-License-Identifier: Apache-2.0
+  (c) 2026 Taktflow Systems
+
+  Community ODX 2.2 Catalog Grammar - clean-room implementation.
+
+  This schema validates the "CATALOG" / index.xml document that sits
+  inside every PDX archive.  It is the companion of odx-community.xsd
+  and corresponds to what ASAM calls "odx-cc.xsd" in the paywalled
+  schema bundle, but this file is a from-scratch, clean-room
+  replacement derived from:
+    - the MIT-licensed odxtools pdxfile.py / datablock.py /
+      datafile.py module sources,
+    - real index.xml samples from the odxtools somersault.pdx and
+      the Taktflow-generated ECU PDX files.
+
+  It is NOT derived from any ASAM-licensed schema file or PDF.
+
+  CATALOG root structure observed in every sample:
+      CATALOG @F-DTD-VERSION ("ODX-2.2.0")
+        SHORT-NAME
+        ABLOCKS
+          ABLOCK @UPD (UNCHANGED|CHANGED|ADDED|DELETED)
+            SHORT-NAME
+            FILES
+              FILE @MIME-TYPE @CREATION-DATE  (text = relative path)
+
+  Authors: Taktflow Systems, 2026.
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           elementFormDefault="unqualified"
+           attributeFormDefault="unqualified">
+
+  <xs:simpleType name="updState">
+    <xs:restriction base="xs:token">
+      <xs:enumeration value="UNCHANGED"/>
+      <xs:enumeration value="CHANGED"/>
+      <xs:enumeration value="ADDED"/>
+      <xs:enumeration value="DELETED"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:element name="SHORT-NAME" type="xs:token"/>
+  <xs:element name="LONG-NAME" type="xs:string"/>
+
+  <xs:element name="FILE">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="xs:string">
+          <xs:attribute name="MIME-TYPE" type="xs:string" use="optional"/>
+          <xs:attribute name="CREATION-DATE" type="xs:string" use="optional"/>
+          <xs:attribute name="LATEST-MODIFICATION-DATE" type="xs:string" use="optional"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="FILES">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element ref="FILE" minOccurs="0" maxOccurs="unbounded"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="ABLOCK">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element ref="SHORT-NAME"/>
+        <xs:element ref="LONG-NAME" minOccurs="0"/>
+        <xs:element ref="FILES" minOccurs="0"/>
+        <xs:any namespace="##local" processContents="lax"
+                minOccurs="0" maxOccurs="unbounded"/>
+      </xs:sequence>
+      <xs:attribute name="UPD" type="updState" use="optional"/>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="ABLOCKS">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element ref="ABLOCK" minOccurs="0" maxOccurs="unbounded"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="CATALOG">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element ref="SHORT-NAME"/>
+        <xs:element ref="LONG-NAME" minOccurs="0"/>
+        <xs:element ref="ABLOCKS" minOccurs="0"/>
+        <xs:any namespace="##local" processContents="lax"
+                minOccurs="0" maxOccurs="unbounded"/>
+      </xs:sequence>
+      <xs:attribute name="F-DTD-VERSION" type="xs:token" use="optional"/>
+      <xs:anyAttribute namespace="##any" processContents="lax"/>
+    </xs:complexType>
+  </xs:element>
+
+</xs:schema>
