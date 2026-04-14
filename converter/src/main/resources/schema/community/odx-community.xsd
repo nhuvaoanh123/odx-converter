@@ -1,0 +1,774 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  SPDX-License-Identifier: Apache-2.0
+  (c) 2026 Taktflow Systems
+
+  Community ODX 2.2 Grammar - clean-room implementation
+
+  This schema is a clean-room implementation of the ISO 22901 /
+  ASAM MCD-2D ODX XML grammar.  It is derived from:
+    - MIT-licensed odxtools Python source
+      (external/odxtools/odxtools/*.py)
+    - Apache-2.0 odx-converter Kotlin data-format classes
+      (odx-converter/database/src/main/kotlin/dataformat/*.kt)
+    - Real ODX XML samples from the MIT odxtools "somersault" example
+      PDX archive and from Taktflow-generated ECU PDX files.
+  It is NOT derived from any ASAM-licensed schema file, PDF, or
+  reference document.  No ASAM normative material was read during
+  the authoring of this schema.
+
+  Scope (Phase 1)
+
+  VALIDATES:
+    - The odxtools somersault.pdx / somersault_modified.pdx test
+      fixtures (8 XML files each: one .odx-d, one .odx-c, six
+      .odx-cs, one index.xml).
+    - Taktflow-generated ECU PDX files: cvc, fzc, rzc, tcu
+      (one .odx-d + one index.xml each), as emitted by tools/odx-gen.
+    - Any future DiagService-centric ODX file whose element set is a
+      subset of the 194 element tags enumerated in
+      community/RECON.md.
+
+  DOES NOT VALIDATE (left lax via xs:any processContents="lax"):
+    - Rarely-used ODX subtrees (FunctionNode, EcuConfig, Multiplexer,
+      SafetyFlash, DtcDop, EnvDataDesc, DynamicLengthField and
+      friends).  These are accepted but not structurally checked.
+    - XHTML content inside DESC elements (accepted via xs:any skip).
+    - Most attribute-level enumerations are typed as xs:token rather
+      than closed xs:enumeration, so forward-compatible values do not
+      trigger validation errors.  BASE-DATA-TYPE is the exception and
+      IS enumerated, because the odxtools code path would refuse an
+      unknown value anyway.
+
+  Extensibility contract
+
+  Coverage grows as the grammar is exercised by more real ODX files.
+  When a new ODX file hits a validation error, the canonical
+  response is to extend this XSD with the missing element or
+  attribute, citing the odxtools / kotlin class that models it, and
+  add the new sample to validate.py.
+
+  Authors: Taktflow Systems, 2026.
+  See community/RECON.md for inventory, community/PYTHON_MAPPING.md
+  for the element-to-class table that drives cardinality decisions.
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           elementFormDefault="unqualified"
+           attributeFormDefault="unqualified">
+
+  <!-- =========================================================== -->
+  <!-- Simple types                                                 -->
+  <!-- =========================================================== -->
+
+  <xs:simpleType name="baseDataType">
+    <xs:restriction base="xs:token">
+      <xs:enumeration value="A_INT32"/>
+      <xs:enumeration value="A_UINT32"/>
+      <xs:enumeration value="A_FLOAT32"/>
+      <xs:enumeration value="A_FLOAT64"/>
+      <xs:enumeration value="A_ASCIISTRING"/>
+      <xs:enumeration value="A_UTF8STRING"/>
+      <xs:enumeration value="A_UNICODE2STRING"/>
+      <xs:enumeration value="A_BYTEFIELD"/>
+      <xs:enumeration value="A_BOOLEAN"/>
+      <xs:enumeration value="A_INT64"/>
+      <xs:enumeration value="A_UINT64"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="displayRadix">
+    <xs:restriction base="xs:token">
+      <xs:enumeration value="BIN"/>
+      <xs:enumeration value="OCT"/>
+      <xs:enumeration value="DEC"/>
+      <xs:enumeration value="HEX"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="intervalType">
+    <xs:restriction base="xs:token">
+      <xs:enumeration value="OPEN"/>
+      <xs:enumeration value="CLOSED"/>
+      <xs:enumeration value="INFINITE"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!-- Attribute enumerations are kept LAX as plain tokens so the XSD
+       does not break on forward-compatible values.  See header. -->
+  <xs:simpleType name="tokenList">
+    <xs:restriction base="xs:token"/>
+  </xs:simpleType>
+
+  <!-- =========================================================== -->
+  <!-- Attribute groups                                             -->
+  <!-- =========================================================== -->
+
+  <xs:attributeGroup name="identifiableAttrs">
+    <xs:attribute name="ID" type="xs:token" use="required"/>
+    <xs:attribute name="OID" type="xs:token" use="optional"/>
+  </xs:attributeGroup>
+
+  <!-- =========================================================== -->
+  <!-- DESC: treated as structured but content-skipped XHTML-ish    -->
+  <!-- (odxtools keeps it as free mixed-content text)               -->
+  <!-- =========================================================== -->
+
+  <xs:complexType name="descType" mixed="true">
+    <xs:sequence>
+      <xs:any namespace="##local" processContents="skip"
+              minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+    <xs:attribute name="TI" type="xs:token" use="optional"/>
+    <xs:anyAttribute namespace="##any" processContents="lax"/>
+  </xs:complexType>
+
+  <!-- Reusable "named element" prefix: SHORT-NAME LONG-NAME? DESC?  -->
+  <!-- We inline it in each complexType because XSD 1.0 has no      -->
+  <!-- group inheritance for attributes + elements together.         -->
+
+  <!-- =========================================================== -->
+  <!-- LIMIT: LOWER-LIMIT / UPPER-LIMIT                             -->
+  <!-- =========================================================== -->
+
+  <xs:complexType name="limitType">
+    <xs:simpleContent>
+      <xs:extension base="xs:string">
+        <xs:attribute name="INTERVAL-TYPE" type="intervalType"
+                      use="optional"/>
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+
+  <!-- =========================================================== -->
+  <!-- DIAG-CODED-TYPE (abstract, xsi:type polymorphism)            -->
+  <!-- =========================================================== -->
+
+  <xs:complexType name="DIAG-CODED-TYPE" abstract="true">
+    <xs:sequence>
+      <xs:any namespace="##local" processContents="lax"
+              minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+    <xs:attribute name="BASE-DATA-TYPE" type="baseDataType" use="required"/>
+    <xs:attribute name="BASE-TYPE-ENCODING" type="xs:token" use="optional"/>
+    <xs:attribute name="IS-HIGHLOW-BYTE-ORDER" type="xs:boolean" use="optional"/>
+  </xs:complexType>
+
+  <xs:complexType name="STANDARD-LENGTH-TYPE">
+    <xs:complexContent>
+      <xs:extension base="DIAG-CODED-TYPE">
+        <!-- child elements modeled via base's xs:any -->
+        <xs:attribute name="IS-CONDENSED" type="xs:boolean" use="optional"/>
+      </xs:extension>
+    </xs:complexContent>
+  </xs:complexType>
+
+  <xs:complexType name="MIN-MAX-LENGTH-TYPE">
+    <xs:complexContent>
+      <xs:extension base="DIAG-CODED-TYPE">
+        <xs:attribute name="TERMINATION" type="xs:token" use="required"/>
+      </xs:extension>
+    </xs:complexContent>
+  </xs:complexType>
+
+  <xs:complexType name="LEADING-LENGTH-INFO-TYPE">
+    <xs:complexContent>
+      <xs:extension base="DIAG-CODED-TYPE"/>
+    </xs:complexContent>
+  </xs:complexType>
+
+  <xs:complexType name="PARAM-LENGTH-INFO-TYPE">
+    <xs:complexContent>
+      <xs:extension base="DIAG-CODED-TYPE"/>
+    </xs:complexContent>
+  </xs:complexType>
+
+  <!-- =========================================================== -->
+  <!-- PHYSICAL-TYPE                                                -->
+  <!-- =========================================================== -->
+
+  <xs:complexType name="physicalType">
+    <xs:sequence>
+      <xs:element name="PRECISION" type="xs:nonNegativeInteger" minOccurs="0"/>
+    </xs:sequence>
+    <xs:attribute name="BASE-DATA-TYPE" type="baseDataType" use="required"/>
+    <xs:attribute name="DISPLAY-RADIX" type="displayRadix" use="optional"/>
+  </xs:complexType>
+
+  <!-- =========================================================== -->
+  <!-- PARAM (abstract, xsi:type polymorphism)                      -->
+  <!-- =========================================================== -->
+  <!--
+    The concrete PARAM subclasses we observed are:
+      VALUE, CODED-CONST, MATCHING-REQUEST-PARAM, NRC-CONST,
+      TABLE-KEY, TABLE-STRUCT, RESERVED, PHYSICAL-CONSTANT,
+      LENGTH-KEY, DYNAMIC, SYSTEM, TABLE-ENTRY.
+    We accept all of them with a permissive base type: any element
+    children (lax) and any attribute (lax).  Cardinality is not
+    enforced inside PARAM because that would explode the XSD; the
+    odxtools loader is the authoritative checker for PARAM shape.
+  -->
+
+  <xs:complexType name="paramBase" mixed="true">
+    <xs:sequence>
+      <xs:any namespace="##local" processContents="lax"
+              minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+    <xs:attribute name="SEMANTIC" type="xs:token" use="optional"/>
+    <xs:attribute name="OID" type="xs:token" use="optional"/>
+    <xs:anyAttribute namespace="##any" processContents="lax"/>
+  </xs:complexType>
+
+  <xs:complexType name="VALUE">
+    <xs:complexContent><xs:extension base="paramBase"/></xs:complexContent>
+  </xs:complexType>
+  <xs:complexType name="CODED-CONST">
+    <xs:complexContent><xs:extension base="paramBase"/></xs:complexContent>
+  </xs:complexType>
+  <xs:complexType name="RESERVED">
+    <xs:complexContent><xs:extension base="paramBase"/></xs:complexContent>
+  </xs:complexType>
+  <xs:complexType name="MATCHING-REQUEST-PARAM">
+    <xs:complexContent><xs:extension base="paramBase"/></xs:complexContent>
+  </xs:complexType>
+  <xs:complexType name="PHYS-CONST">
+    <xs:complexContent><xs:extension base="paramBase"/></xs:complexContent>
+  </xs:complexType>
+  <xs:complexType name="PHYSICAL-CONSTANT">
+    <xs:complexContent><xs:extension base="paramBase"/></xs:complexContent>
+  </xs:complexType>
+  <xs:complexType name="SYSTEM">
+    <xs:complexContent><xs:extension base="paramBase"/></xs:complexContent>
+  </xs:complexType>
+  <xs:complexType name="LENGTH-KEY">
+    <xs:complexContent><xs:extension base="paramBase"/></xs:complexContent>
+  </xs:complexType>
+  <xs:complexType name="DYNAMIC">
+    <xs:complexContent><xs:extension base="paramBase"/></xs:complexContent>
+  </xs:complexType>
+  <xs:complexType name="NRC-CONST">
+    <xs:complexContent><xs:extension base="paramBase"/></xs:complexContent>
+  </xs:complexType>
+  <xs:complexType name="TABLE-STRUCT">
+    <xs:complexContent><xs:extension base="paramBase"/></xs:complexContent>
+  </xs:complexType>
+  <xs:complexType name="TABLE-KEY">
+    <xs:complexContent><xs:extension base="paramBase"/></xs:complexContent>
+  </xs:complexType>
+  <xs:complexType name="TABLE-ENTRY">
+    <xs:complexContent><xs:extension base="paramBase"/></xs:complexContent>
+  </xs:complexType>
+
+  <!-- =========================================================== -->
+  <!-- PARENT-REF (abstract, xsi:type polymorphism)                 -->
+  <!-- =========================================================== -->
+
+  <xs:complexType name="parentRefBase" abstract="false">
+    <xs:sequence>
+      <xs:any namespace="##local" processContents="lax"
+              minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+    <xs:attribute name="ID-REF" type="xs:token" use="required"/>
+    <xs:attribute name="DOCREF" type="xs:token" use="optional"/>
+    <xs:attribute name="DOCTYPE" type="xs:token" use="optional"/>
+    <xs:anyAttribute namespace="##any" processContents="lax"/>
+  </xs:complexType>
+
+  <xs:complexType name="BASE-VARIANT-REF">
+    <xs:complexContent><xs:extension base="parentRefBase"/></xs:complexContent>
+  </xs:complexType>
+  <xs:complexType name="PROTOCOL-REF">
+    <xs:complexContent><xs:extension base="parentRefBase"/></xs:complexContent>
+  </xs:complexType>
+  <xs:complexType name="ECU-SHARED-DATA-REF">
+    <xs:complexContent><xs:extension base="parentRefBase"/></xs:complexContent>
+  </xs:complexType>
+  <xs:complexType name="FUNCTIONAL-GROUP-REF">
+    <xs:complexContent><xs:extension base="parentRefBase"/></xs:complexContent>
+  </xs:complexType>
+
+  <!-- =========================================================== -->
+  <!-- Generic "anything goes" type for subtrees we do not model.   -->
+  <!-- =========================================================== -->
+
+  <xs:complexType name="anyContent" mixed="true">
+    <xs:sequence>
+      <xs:any namespace="##local" processContents="lax"
+              minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+    <xs:anyAttribute namespace="##any" processContents="lax"/>
+  </xs:complexType>
+
+  <!-- =========================================================== -->
+  <!-- Global element declarations                                   -->
+  <!-- (Below we declare EVERY tag observed in the Phase 1 recon     -->
+  <!-- so that xs:any processContents="lax" content models find them)-->
+  <!-- =========================================================== -->
+
+  <!-- Common named-element children -->
+  <xs:element name="SHORT-NAME" type="xs:token"/>
+  <xs:element name="LONG-NAME" type="xs:string"/>
+  <xs:element name="DESC" type="descType"/>
+  <xs:element name="SHORT-LABEL" type="xs:string"/>
+  <xs:element name="SEMANTIC" type="xs:token"/>
+  <xs:element name="CATEGORY" type="xs:token"/>
+  <xs:element name="ID" type="xs:token"/>
+
+  <!-- Simple leaf text elements -->
+  <xs:element name="BIT-LENGTH" type="xs:nonNegativeInteger"/>
+  <xs:element name="BIT-POSITION" type="xs:nonNegativeInteger"/>
+  <xs:element name="BYTE-LENGTH" type="xs:nonNegativeInteger"/>
+  <xs:element name="BYTE-POSITION" type="xs:nonNegativeInteger"/>
+  <xs:element name="MIN-LENGTH" type="xs:nonNegativeInteger"/>
+  <xs:element name="MAX-LENGTH" type="xs:nonNegativeInteger"/>
+  <xs:element name="REQUEST-BYTE-POS" type="xs:nonNegativeInteger"/>
+  <xs:element name="CODED-VALUE" type="xs:string"/>
+  <xs:element name="PHYSICAL-DEFAULT-VALUE" type="xs:string"/>
+  <xs:element name="COMPLEX-PHYSICAL-DEFAULT-VALUE" type="anyContent"/>
+  <xs:element name="LOWER-LIMIT" type="limitType"/>
+  <xs:element name="UPPER-LIMIT" type="limitType"/>
+  <xs:element name="V" type="xs:decimal"/>
+  <xs:element name="VT" type="xs:string"/>
+  <xs:element name="VALUE" type="xs:string"/>
+  <xs:element name="SIMPLE-VALUE" type="xs:string"/>
+  <xs:element name="KEY" type="xs:string"/>
+  <xs:element name="DISPLAY-NAME" type="xs:string"/>
+  <xs:element name="FACTOR-SI-TO-UNIT" type="xs:decimal"/>
+  <xs:element name="OFFSET-SI-TO-UNIT" type="xs:decimal"/>
+  <xs:element name="TEMPERATURE-EXP" type="xs:integer"/>
+  <xs:element name="TIME-EXP" type="xs:integer"/>
+  <xs:element name="LENGTH-EXP" type="xs:integer"/>
+  <xs:element name="MASS-EXP" type="xs:integer"/>
+  <xs:element name="CURRENT-EXP" type="xs:integer"/>
+  <xs:element name="MOLAR-AMOUNT-EXP" type="xs:integer"/>
+  <xs:element name="LUMINOUS-INTENSITY-EXP" type="xs:integer"/>
+  <xs:element name="LANGUAGE" type="xs:string"/>
+  <xs:element name="DATE" type="xs:string"/>
+  <xs:element name="REVISION" type="xs:string"/>
+  <xs:element name="REVISION-LABEL" type="xs:string"/>
+  <xs:element name="PUBLISHER" type="xs:string"/>
+  <xs:element name="NUMBER" type="xs:string"/>
+  <xs:element name="POSITION" type="xs:string"/>
+  <xs:element name="URL" type="xs:string"/>
+  <xs:element name="STATE" type="anyContent"/>
+  <xs:element name="CHANGE" type="xs:string"/>
+  <xs:element name="REASON" type="xs:string"/>
+  <xs:element name="ADDRESS" type="xs:string"/>
+  <xs:element name="CITY" type="xs:string"/>
+  <xs:element name="ZIP" type="xs:string"/>
+  <xs:element name="EMAIL" type="xs:string"/>
+  <xs:element name="PHONE" type="xs:string"/>
+  <xs:element name="FAX" type="xs:string"/>
+  <xs:element name="DEPARTMENT" type="xs:string"/>
+  <xs:element name="DOC-LABEL" type="xs:string"/>
+  <xs:element name="ROLE" type="xs:string"/>
+  <xs:element name="ENTRYPOINT" type="xs:string"/>
+  <xs:element name="CODE-FILE" type="xs:string"/>
+  <xs:element name="SYNTAX" type="xs:string"/>
+  <xs:element name="PDU-PROTOCOL-TYPE" type="xs:token"/>
+  <xs:element name="PHYSICAL-LINK-TYPE" type="xs:token"/>
+  <xs:element name="TOOL" type="xs:string"/>
+
+  <!-- REF elements with ID-REF attribute (leaf) -->
+  <xs:complexType name="idRefElement">
+    <xs:attribute name="ID-REF" type="xs:token" use="required"/>
+    <xs:attribute name="DOCREF" type="xs:token" use="optional"/>
+    <xs:attribute name="DOCTYPE" type="xs:token" use="optional"/>
+  </xs:complexType>
+
+  <xs:element name="REQUEST-REF" type="idRefElement"/>
+  <xs:element name="POS-RESPONSE-REF" type="idRefElement"/>
+  <xs:element name="NEG-RESPONSE-REF" type="idRefElement"/>
+  <xs:element name="DATA-OBJECT-PROP-REF" type="idRefElement"/>
+  <xs:element name="DOP-REF" type="idRefElement"/>
+  <xs:element name="STRUCTURE-REF" type="idRefElement"/>
+  <xs:element name="TABLE-REF" type="idRefElement"/>
+  <xs:element name="TABLE-KEY-REF" type="idRefElement"/>
+  <xs:element name="KEY-DOP-REF" type="idRefElement"/>
+  <xs:element name="UNIT-REF" type="idRefElement"/>
+  <xs:element name="PHYSICAL-DIMENSION-REF" type="idRefElement"/>
+  <xs:element name="FUNCT-CLASS-REF" type="idRefElement"/>
+  <xs:element name="TEAM-MEMBER-REF" type="idRefElement"/>
+  <xs:element name="DISABLED-AUDIENCE-REF" type="idRefElement"/>
+  <xs:element name="ENABLED-AUDIENCE-REF" type="idRefElement"/>
+  <xs:element name="ADDITIONAL-AUDIENCE-REF" type="idRefElement"/>
+  <xs:element name="STATE-TRANSITION-REF" type="anyContent"/>
+  <xs:element name="PRE-CONDITION-STATE-REF" type="anyContent"/>
+  <xs:element name="COMPANY-DATA-REF" type="idRefElement"/>
+  <xs:element name="COMPARAM-SUBSET-REF" type="idRefElement"/>
+  <xs:element name="COMPARAM-SPEC-REF" type="idRefElement"/>
+
+  <!-- PARENT-REF uses abstract base (xsi:type) -->
+  <xs:element name="PARENT-REF" type="parentRefBase"/>
+
+  <!-- SNREF elements: carry SHORT-NAME attribute -->
+  <xs:complexType name="snrefElement">
+    <xs:attribute name="SHORT-NAME" type="xs:token" use="required"/>
+  </xs:complexType>
+
+  <xs:element name="DIAG-COMM-SNREF" type="snrefElement"/>
+  <xs:element name="DOP-BASE-SNREF" type="snrefElement"/>
+  <xs:element name="DOP-SNREF" type="snrefElement"/>
+  <xs:element name="SOURCE-SNREF" type="snrefElement"/>
+  <xs:element name="TARGET-SNREF" type="snrefElement"/>
+  <xs:element name="START-STATE-SNREF" type="snrefElement"/>
+  <xs:element name="PROTOCOL-SNREF" type="snrefElement"/>
+  <xs:element name="IN-PARAM-IF-SNREF" type="snrefElement"/>
+  <xs:element name="TABLE-SNREF" type="snrefElement"/>
+
+  <!-- Container elements: we keep them permissive (anyContent) for
+       Phase 1 unless they are on a backbone path exercised by the
+       Taktflow output.  These are "pluralizer" wrappers. -->
+  <xs:element name="ABLOCKS" type="anyContent"/>
+  <xs:element name="ABLOCK" type="anyContent"/>
+  <xs:element name="FILES" type="anyContent"/>
+  <xs:element name="FILE">
+    <xs:complexType mixed="true">
+      <xs:attribute name="MIME-TYPE" type="xs:string" use="optional"/>
+      <xs:attribute name="CREATION-DATE" type="xs:string" use="optional"/>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="ADMIN-DATA" type="anyContent"/>
+  <xs:element name="DOC-REVISIONS" type="anyContent"/>
+  <xs:element name="DOC-REVISION" type="anyContent"/>
+  <xs:element name="MODIFICATIONS" type="anyContent"/>
+  <xs:element name="MODIFICATION" type="anyContent"/>
+  <xs:element name="COMPANY-DATAS" type="anyContent"/>
+  <xs:element name="COMPANY-DATA" type="anyContent"/>
+  <xs:element name="COMPANY-SPECIFIC-INFO" type="anyContent"/>
+  <xs:element name="COMPANY-DOC-INFOS" type="anyContent"/>
+  <xs:element name="COMPANY-DOC-INFO" type="anyContent"/>
+  <xs:element name="RELATED-DOCS" type="anyContent"/>
+  <xs:element name="RELATED-DOC" type="anyContent"/>
+  <xs:element name="XDOC" type="anyContent"/>
+  <xs:element name="TEAM-MEMBERS" type="anyContent"/>
+  <xs:element name="TEAM-MEMBER" type="anyContent"/>
+  <xs:element name="ROLES" type="anyContent"/>
+
+  <xs:element name="AUDIENCE" type="anyContent"/>
+  <xs:element name="ADDITIONAL-AUDIENCES" type="anyContent"/>
+  <xs:element name="ADDITIONAL-AUDIENCE" type="anyContent"/>
+  <xs:element name="ENABLED-AUDIENCE-REFS" type="anyContent"/>
+  <xs:element name="DISABLED-AUDIENCE-REFS" type="anyContent"/>
+  <xs:element name="PRE-CONDITION-STATE-REFS" type="anyContent"/>
+  <xs:element name="STATE-TRANSITION-REFS" type="anyContent"/>
+
+  <xs:element name="FUNCT-CLASSS" type="anyContent"/>
+  <xs:element name="FUNCT-CLASS" type="anyContent"/>
+  <xs:element name="FUNCT-CLASS-REFS" type="anyContent"/>
+
+  <xs:element name="PROTOCOLS" type="anyContent"/>
+  <xs:element name="PROTOCOL" type="anyContent"/>
+
+  <xs:element name="PROT-STACKS" type="anyContent"/>
+  <xs:element name="PROT-STACK" type="anyContent"/>
+
+  <xs:element name="COMPARAM-SPEC" type="anyContent"/>
+  <xs:element name="COMPARAM-SUBSET" type="anyContent"/>
+  <xs:element name="COMPARAM-SUBSET-REFS" type="anyContent"/>
+  <xs:element name="COMPARAMS" type="anyContent"/>
+  <xs:element name="COMPARAM" type="anyContent"/>
+  <xs:element name="COMPLEX-COMPARAMS" type="anyContent"/>
+  <xs:element name="COMPLEX-COMPARAM" type="anyContent"/>
+  <xs:element name="COMPARAM-REFS" type="anyContent"/>
+  <xs:element name="COMPARAM-REF" type="anyContent"/>
+  <xs:element name="COMPLEX-VALUE" type="anyContent"/>
+
+  <xs:element name="BASE-VARIANTS" type="anyContent"/>
+  <xs:element name="BASE-VARIANT">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element ref="SHORT-NAME"/>
+        <xs:element ref="LONG-NAME" minOccurs="0"/>
+        <xs:element ref="DESC" minOccurs="0"/>
+        <!-- admin / company / audience / protocol / diag-comms / etc -->
+        <xs:any namespace="##local" processContents="lax"
+                minOccurs="0" maxOccurs="unbounded"/>
+      </xs:sequence>
+      <xs:attributeGroup ref="identifiableAttrs"/>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="ECU-VARIANTS" type="anyContent"/>
+  <xs:element name="ECU-VARIANT">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element ref="SHORT-NAME"/>
+        <xs:element ref="LONG-NAME" minOccurs="0"/>
+        <xs:element ref="DESC" minOccurs="0"/>
+        <xs:any namespace="##local" processContents="lax"
+                minOccurs="0" maxOccurs="unbounded"/>
+      </xs:sequence>
+      <xs:attributeGroup ref="identifiableAttrs"/>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="PARENT-REFS" type="anyContent"/>
+  <xs:element name="NOT-INHERITED-DIAG-COMMS" type="anyContent"/>
+  <xs:element name="NOT-INHERITED-DIAG-COMM" type="anyContent"/>
+  <xs:element name="NOT-INHERITED-DOPS" type="anyContent"/>
+  <xs:element name="NOT-INHERITED-DOP" type="anyContent"/>
+
+  <!-- State machine subtree (somersault-only) -->
+  <xs:element name="STATE-CHARTS" type="anyContent"/>
+  <xs:element name="STATE-CHART" type="anyContent"/>
+  <xs:element name="STATES" type="anyContent"/>
+  <xs:element name="STATE-TRANSITIONS" type="anyContent"/>
+  <xs:element name="STATE-TRANSITION" type="anyContent"/>
+
+  <!-- Units subtree -->
+  <xs:element name="UNIT-SPEC" type="anyContent"/>
+  <xs:element name="UNITS" type="anyContent"/>
+  <xs:element name="UNIT" type="anyContent"/>
+  <xs:element name="UNIT-GROUPS" type="anyContent"/>
+  <xs:element name="UNIT-GROUP" type="anyContent"/>
+  <xs:element name="UNIT-REFS" type="anyContent"/>
+  <xs:element name="PHYSICAL-DIMENSIONS" type="anyContent"/>
+  <xs:element name="PHYSICAL-DIMENSION" type="anyContent"/>
+
+  <!-- Tables subtree -->
+  <xs:element name="TABLES" type="anyContent"/>
+  <xs:element name="TABLE" type="anyContent"/>
+  <xs:element name="TABLE-ROW" type="anyContent"/>
+
+  <!-- Structures subtree -->
+  <xs:element name="STRUCTURES" type="anyContent"/>
+  <xs:element name="STRUCTURE">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element ref="SHORT-NAME"/>
+        <xs:element ref="LONG-NAME" minOccurs="0"/>
+        <xs:element ref="DESC" minOccurs="0"/>
+        <xs:any namespace="##local" processContents="lax"
+                minOccurs="0" maxOccurs="unbounded"/>
+      </xs:sequence>
+      <xs:attributeGroup ref="identifiableAttrs"/>
+    </xs:complexType>
+  </xs:element>
+
+  <!-- Constraints -->
+  <xs:element name="INTERNAL-CONSTR" type="anyContent"/>
+  <xs:element name="PHYSICAL-CONSTR" type="anyContent"/>
+  <xs:element name="SCALE-CONSTRS" type="anyContent"/>
+  <xs:element name="SCALE-CONSTR" type="anyContent"/>
+
+  <!-- Compu method subtree (backbone for DOPs) -->
+  <xs:element name="COMPU-METHOD">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element ref="CATEGORY"/>
+        <xs:any namespace="##local" processContents="lax"
+                minOccurs="0" maxOccurs="unbounded"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+  <xs:element name="COMPU-INTERNAL-TO-PHYS" type="anyContent"/>
+  <xs:element name="COMPU-PHYS-TO-INTERNAL" type="anyContent"/>
+  <xs:element name="COMPU-SCALES" type="anyContent"/>
+  <xs:element name="COMPU-SCALE" type="anyContent"/>
+  <xs:element name="COMPU-CONST" type="anyContent"/>
+  <xs:element name="COMPU-DEFAULT-VALUE" type="anyContent"/>
+  <xs:element name="COMPU-INVERSE-VALUE" type="anyContent"/>
+  <xs:element name="COMPU-RATIONAL-COEFFS" type="anyContent"/>
+  <xs:element name="COMPU-NUMERATOR" type="anyContent"/>
+  <xs:element name="COMPU-DENOMINATOR" type="anyContent"/>
+
+  <xs:element name="CODED-VALUES" type="anyContent"/>
+
+  <!-- Data object prop / physical / diag-coded backbone -->
+  <xs:element name="DATA-OBJECT-PROPS">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element ref="DATA-OBJECT-PROP" minOccurs="0" maxOccurs="unbounded"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="DATA-OBJECT-PROP">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element ref="SHORT-NAME"/>
+        <xs:element ref="LONG-NAME" minOccurs="0"/>
+        <xs:element ref="DESC" minOccurs="0"/>
+        <xs:any namespace="##local" processContents="lax"
+                minOccurs="0" maxOccurs="unbounded"/>
+      </xs:sequence>
+      <xs:attributeGroup ref="identifiableAttrs"/>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="PHYSICAL-TYPE" type="physicalType"/>
+  <xs:element name="DIAG-CODED-TYPE" type="DIAG-CODED-TYPE"/>
+
+  <!-- DiagDataDictionarySpec -->
+  <xs:element name="DIAG-DATA-DICTIONARY-SPEC">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:any namespace="##local" processContents="lax"
+                minOccurs="0" maxOccurs="unbounded"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+
+  <!-- DiagComms / DiagService -->
+  <xs:element name="DIAG-COMMS">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:choice minOccurs="0" maxOccurs="unbounded">
+          <xs:element ref="DIAG-SERVICE"/>
+          <xs:element ref="SINGLE-ECU-JOB"/>
+        </xs:choice>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="DIAG-SERVICE">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element ref="SHORT-NAME"/>
+        <xs:element ref="LONG-NAME" minOccurs="0"/>
+        <xs:element ref="DESC" minOccurs="0"/>
+        <xs:any namespace="##local" processContents="lax"
+                minOccurs="0" maxOccurs="unbounded"/>
+      </xs:sequence>
+      <xs:attributeGroup ref="identifiableAttrs"/>
+      <xs:attribute name="SEMANTIC" type="xs:token" use="optional"/>
+      <xs:attribute name="ADDRESSING" type="xs:token" use="optional"/>
+      <xs:attribute name="TRANSMISSION-MODE" type="xs:token" use="optional"/>
+      <xs:attribute name="IS-CYCLIC" type="xs:boolean" use="optional"/>
+      <xs:attribute name="IS-MULTIPLE" type="xs:boolean" use="optional"/>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="SINGLE-ECU-JOB">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element ref="SHORT-NAME"/>
+        <xs:element ref="LONG-NAME" minOccurs="0"/>
+        <xs:element ref="DESC" minOccurs="0"/>
+        <xs:any namespace="##local" processContents="lax"
+                minOccurs="0" maxOccurs="unbounded"/>
+      </xs:sequence>
+      <xs:attributeGroup ref="identifiableAttrs"/>
+      <xs:attribute name="SEMANTIC" type="xs:token" use="optional"/>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="PROG-CODES" type="anyContent"/>
+  <xs:element name="PROG-CODE" type="anyContent"/>
+
+  <!-- Request / Response / Param -->
+  <xs:element name="REQUESTS">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element ref="REQUEST" minOccurs="0" maxOccurs="unbounded"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:complexType name="requestOrResponse">
+    <xs:sequence>
+      <xs:element ref="SHORT-NAME"/>
+      <xs:element ref="LONG-NAME" minOccurs="0"/>
+      <xs:element ref="DESC" minOccurs="0"/>
+      <xs:any namespace="##local" processContents="lax"
+              minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+    <xs:attributeGroup ref="identifiableAttrs"/>
+  </xs:complexType>
+
+  <xs:element name="REQUEST" type="requestOrResponse"/>
+
+  <xs:element name="POS-RESPONSES">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element ref="POS-RESPONSE" minOccurs="0" maxOccurs="unbounded"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+  <xs:element name="POS-RESPONSE" type="requestOrResponse"/>
+
+  <xs:element name="NEG-RESPONSES">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element ref="NEG-RESPONSE" minOccurs="0" maxOccurs="unbounded"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+  <xs:element name="NEG-RESPONSE" type="requestOrResponse"/>
+
+  <xs:element name="GLOBAL-NEG-RESPONSES">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element ref="GLOBAL-NEG-RESPONSE" minOccurs="0" maxOccurs="unbounded"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+  <xs:element name="GLOBAL-NEG-RESPONSE" type="requestOrResponse"/>
+
+  <xs:element name="POS-RESPONSE-REFS">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element ref="POS-RESPONSE-REF" minOccurs="0" maxOccurs="unbounded"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+  <xs:element name="NEG-RESPONSE-REFS">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element ref="NEG-RESPONSE-REF" minOccurs="0" maxOccurs="unbounded"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="PARAMS">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element ref="PARAM" minOccurs="0" maxOccurs="unbounded"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="PARAM" type="paramBase"/>
+
+  <!-- =========================================================== -->
+  <!-- DIAG-LAYER-CONTAINER                                          -->
+  <!-- =========================================================== -->
+  <xs:element name="DIAG-LAYER-CONTAINER">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element ref="SHORT-NAME"/>
+        <xs:element ref="LONG-NAME" minOccurs="0"/>
+        <xs:element ref="DESC" minOccurs="0"/>
+        <xs:any namespace="##local" processContents="lax"
+                minOccurs="0" maxOccurs="unbounded"/>
+      </xs:sequence>
+      <xs:attributeGroup ref="identifiableAttrs"/>
+    </xs:complexType>
+  </xs:element>
+
+  <!-- =========================================================== -->
+  <!-- Root: ODX                                                    -->
+  <!-- =========================================================== -->
+  <xs:element name="ODX">
+    <xs:complexType>
+      <xs:choice>
+        <xs:element ref="DIAG-LAYER-CONTAINER"/>
+        <xs:element ref="COMPARAM-SPEC"/>
+        <xs:element ref="COMPARAM-SUBSET"/>
+        <!-- Other top-level ODX document categories (VEHICLE-INFO-SPEC,
+             FLASH, MULTIPLE-ECU-JOB-SPEC, ECU-CONFIG, FUNCTION-DICTIONARY,
+             ECU-SHARED-DATA, FUNCTIONAL-GROUP) are accepted by name below
+             without structural validation. -->
+        <xs:element name="VEHICLE-INFO-SPEC" type="anyContent"/>
+        <xs:element name="FLASH" type="anyContent"/>
+        <xs:element name="MULTIPLE-ECU-JOB-SPEC" type="anyContent"/>
+        <xs:element name="ECU-CONFIG" type="anyContent"/>
+        <xs:element name="FUNCTION-DICTIONARY-SPEC" type="anyContent"/>
+      </xs:choice>
+      <xs:attribute name="MODEL-VERSION" type="xs:token" use="optional"/>
+      <xs:anyAttribute namespace="##any" processContents="lax"/>
+    </xs:complexType>
+  </xs:element>
+
+</xs:schema>
